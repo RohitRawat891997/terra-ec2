@@ -29,4 +29,3 @@ module "dev-infra" {
   instance_type = "t2.micro"
   public_key    = file("./terra-key")
 }
-

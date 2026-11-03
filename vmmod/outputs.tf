@@ -1,7 +1,7 @@
-output "aws_vpc" {
-  value = data.aws_vpc.main.cidr_block
+output "ec2_public_dns" {
+  value = aws_instance.main.public_dns
 }
 
-output "aws_instance" {
+output "ec2_public_ip" {
   value = aws_instance.main.public_ip
 }
