@@ -1,84 +1,96 @@
-# Terra Practice
+# Terra EC2
 
-This project is a simple Terraform learning repository created to provision a basic AWS infrastructure using Infrastructure as Code (IaC). It is designed for beginners who want to understand how Terraform works in real life, especially for creating a virtual machine, security group, SSH access, and remote state storage.
+This project is a beginner-friendly Terraform practice repository for creating an Amazon EC2 instance on AWS using Infrastructure as Code (IaC).
 
-The project is intentionally small and focused on one purpose: create a secure Ubuntu-based EC2 instance on AWS and keep the Terraform state in an S3 bucket.
+The goal of the project is to show how Terraform can automate the provisioning of cloud infrastructure in a simple, readable, and reusable way.
 
 ## Project purpose
 
-This repository exists to demonstrate:
+This repository demonstrates:
 
-- Terraform configuration basics
-- AWS provider usage
+- Terraform project structure
+- AWS provider configuration
 - Reusable Terraform modules
-- Remote backend configuration with S3
-- EC2 instance creation
-- Security group configuration
-- Key pair setup for SSH access
-- Terraform outputs for useful runtime information
+- EC2 instance provisioning
+- Security group creation
+- SSH key pair setup
+- Remote Terraform state using S3 backend
+- Output values for public access information
 
-This is a practice project. It is meant for learning, testing, and hands-on understanding of Terraform, not as a production-ready enterprise deployment.
+This is a learning project and is intended for practice, demo, and experimentation.
 
 ## What this project creates
 
-When you run the Terraform code in this repository, it will create:
+When you run Terraform in this repository, it creates:
 
-- An AWS EC2 instance running Ubuntu 24.04
-- An SSH key pair for the instance
-- A security group with inbound rules for:
-  - SSH on port 22
-  - HTTP on port 80
-  - HTTPS on port 443
-- A default VPC lookup in the configured AWS region
-- Output values showing the VPC CIDR and EC2 public IP
+- An Ubuntu EC2 instance
+- An AWS key pair for SSH access
+- A security group with inbound access on:
+  - port 22 (SSH)
+  - port 80 (HTTP)
+  - port 443 (HTTPS)
+- A VPC lookup based on the default available VPC in the AWS account
+- Outputs exposing the instance public DNS and public IP
 
 ## Repository structure
 
 - `main.tf` — root Terraform configuration
-- `vmmod/` — reusable Terraform module that creates the virtual machine infrastructure
-- `vmmod/main.tf` — EC2, security group, key pair, and instance setup logic
-- `vmmod/variables.tf` — module input variables
-- `vmmod/outputs.tf` — output values returned after deployment
-- `.gitignore` — common ignore rules
+- `outputs.tf` — root outputs that expose values from the child module
+- `vmmod/` — reusable module for infrastructure creation
+- `vmmod/main.tf` — EC2, security group, and networking configuration
+- `vmmod/variables.tf` — module inputs
+- `vmmod/outputs.tf` — EC2 public DNS and public IP outputs
+- `.gitignore` — ignore file for local Terraform files
 
-## Root configuration explained
+## Root configuration
 
-The root file `main.tf` does the following:
+The root `main.tf` file configures:
 
-1. Configures the Terraform required AWS provider.
-2. Uses an S3 backend to store Terraform state remotely.
-3. Sets the AWS region to `us-east-1`.
-4. Calls the local module `./vmmod`.
-5. Passes values such as environment, instance name, instance type, and SSH public key.
-
-Example values used by the project:
-
-- Environment: `dev`
-- Instance name: `web-server`
-- Instance type: `t2.micro`
-- SSH public key: loaded from `./terra-key`
-
-The backend block is:
+1. Terraform and AWS provider
+2. S3 backend for Terraform state
+3. Default AWS region (`us-east-1`)
+4. A local module called `./vmmod`
+5. Module inputs like environment, instance name, instance type, and SSH public key
 
 ```hcl
-backend "s3" {
-  bucket       = "my-terraform-state-bucket"
-  key          = "terra-backup/terraform.tfstate"
-  region       = "us-east-1"
-  encrypt      = true
-  use_lockfile = true
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+  backend "s3" {
+    bucket       = "my-terraform-state-bucket"
+    key          = "terra-backup/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 ```
 
-This means your Terraform state is stored in an S3 bucket instead of a local file. This is useful for team collaboration and safer infrastructure management.
+The root module calls the custom module as shown below:
 
-## Module explanation
+```hcl
+module "dev-infra" {
+  source        = "./vmmod"
+  env           = "dev"
+  instance_name = "web-server"
+  instance_type = "t2.micro"
+  public_key    = file("./terra-key")
+}
+```
 
-The `vmmod` module contains the actual infrastructure logic.
+This means Terraform will use the `vmmod` module to create the AWS infrastructure.
 
-### 1. Key pair creation
+## Module behavior
 
-Terraform creates an AWS key pair using the public key you provide.
+The `vmmod` module contains the real infrastructure logic.
+
+### 1. SSH key pair
+
+Terraform creates an AWS EC2 key pair using the public key you provide.
 
 ```hcl
 resource "aws_key_pair" "main" {
@@ -87,11 +99,9 @@ resource "aws_key_pair" "main" {
 }
 ```
 
-This allows you to connect to the EC2 instance using the matching private key.
-
 ### 2. VPC lookup
 
-Terraform looks up the available VPC in the AWS account and uses it for the security group.
+Terraform finds the available VPC in the AWS account and uses it for the security group.
 
 ```hcl
 data "aws_vpc" "main" {
@@ -101,17 +111,34 @@ data "aws_vpc" "main" {
 
 ### 3. Security group
 
-The security group opens ports for:
+The module creates a security group that allows inbound traffic on:
 
-- 22 (SSH)
-- 80 (HTTP)
-- 443 (HTTPS)
+- 22 for SSH
+- 80 for HTTP
+- 443 for HTTPS
 
-This is done using a dynamic ingress block so rules are generated from a list of objects.
+The ingress rules are defined using a variable list and a dynamic `ingress` block.
 
-### 4. EC2 instance creation
+### 4. Ubuntu AMI lookup
 
-Terraform launches an Ubuntu instance using Canonical Ubuntu AMI and the defined instance type.
+Terraform looks up the latest Ubuntu 24.04 AMI for the region.
+
+```hcl
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+}
+```
+
+### 5. EC2 instance creation
+
+The EC2 instance is created with:
+
+- Ubuntu AMI
+- selected instance type
+- key pair
+- security group
+- root volume size based on environment
 
 ```hcl
 resource "aws_instance" "main" {
@@ -122,83 +149,76 @@ resource "aws_instance" "main" {
 }
 ```
 
-The root block device is configured with:
+## Outputs
 
-- 10 GB for `dev`
-- 20 GB for non-dev environments
+The module exposes:
 
-### 5. Outputs
+- `ec2_public_dns`
+- `ec2_public_ip`
 
-After deployment, Terraform prints:
+At the root level, `outputs.tf` passes those values to the top-level project:
 
-- VPC CIDR block
-- EC2 public IP
+```hcl
+output "ec2_public_dns" {
+  description = "EC2 Public DNS"
+  value       = module.dev-infra.ec2_public_dns
+}
 
-These outputs help you know where the instance is running and how to connect to it.
+output "ec2_public_ip" {
+  description = "EC2 Public IP"
+  value       = module.dev-infra.ec2_public_ip
+}
+```
 
-## Important variables
+These outputs help you know where the EC2 instance is running and how to connect to it.
 
-The module defines the following variables:
+## Variables used by the module
 
-- `env` — environment name, default `prd`
-- `key_pair_name` — AWS key pair name, default `terra-key`
-- `public_key` — public SSH key content
-- `instance_name` — instance tag name
-- `instance_type` — EC2 size, default `t2.micro`
-- `instance_volume_size` — root disk size
+The module supports the following variables:
+
+- `env` — environment name
+- `key_pair_name` — key pair name
+- `public_key` — SSH public key content
+- `instance_name` — EC2 instance name
+- `instance_type` — EC2 instance size
 - `security_group_name` — security group name
-- `ingress_ports` — list of allowed inbound ports and CIDR ranges
+- `ingress_ports` — allowed inbound rules
 
 ## Prerequisites
 
-Before running this project, make sure you have:
+Before running this project, ensure you have:
 
 - An AWS account
-- IAM credentials with permission to create EC2, VPC-related resources, key pairs, and security groups
-- Terraform installed on your machine
-- AWS CLI configured or environment variables set
-- An S3 bucket created in the configured region
+- AWS credentials configured
+- Terraform installed
+- An S3 bucket for remote state created in the required region
+- A generated SSH key pair
 
-## Required setup steps
+## Generate SSH key
 
-### 1. Create the SSH key pair
+Run the following command:
 
-Run:
+```bash
+ssh-keygen -t rsa -b 4096
+```
+
+This will create a private/public key pair. The public key is passed to Terraform using `file("./terra-key")` in the root configuration.
+
+If you want a custom key file name:
 
 ```bash
 ssh-keygen -t rsa -b 4096 -f ./terra-key -N ""
 ```
 
-This creates:
+## Configure AWS credentials
 
-- `terra-key` (private key)
-- `terra-key.pub` (public key)
-
-The public key is read by Terraform from `./terra-key` as configured in the root module.
-
-### 2. Create the S3 backend bucket
-
-Because the Terraform backend is configured to use S3, the bucket must exist first.
-
-Example:
-
-```bash
-aws s3api create-bucket \
-  --bucket my-terraform-state-bucket \
-  --region us-east-1
-```
-
-If you use a different AWS region or bucket name, update the backend block in `main.tf` accordingly.
-
-### 3. Configure AWS credentials
-
-Set your AWS credentials using either AWS CLI or environment variables:
+You can configure AWS CLI with:
 
 ```bash
 aws configure
 ```
 
-Or:
+Or set environment variables:
 
 ```bash
 export AWS_ACCESS_KEY_ID="your-access-key"
@@ -206,25 +226,27 @@ export AWS_SECRET_ACCESS_KEY="your-secret-key"
 export AWS_DEFAULT_REGION="us-east-1"
 ```
 
-### 4. Initialize Terraform
+## Setup and deployment
+
+### 1. Initialize Terraform
 
 ```bash
 terraform init
 ```
 
-### 5. Review the plan
+### 2. Review the infrastructure plan
 
 ```bash
 terraform plan
 ```
 
-### 6. Apply the infrastructure
+### 3. Apply the configuration
 
 ```bash
 terraform apply
 ```
 
-If you want to skip confirmation:
+Optional:
 
 ```bash
 terraform apply -auto-approve
@@ -232,9 +254,7 @@ terraform apply -auto-approve
 
 ## Connect to the EC2 instance
 
-After deployment, Terraform will output the instance public IP.
-
-You can then connect using:
+After deployment, use the public IP or public DNS output:
 
 ```bash
 ssh -i terra-key ubuntu@<public-ip>
@@ -246,15 +266,15 @@ Example:
 ssh -i terra-key ubuntu@54.123.45.67
 ```
 
-## Destroy the infrastructure
+## Destroy the environment
 
-When you no longer need the environment:
+When you no longer need the resources:
 
 ```bash
 terraform destroy
 ```
 
-To skip the confirmation prompt:
+Or:
 
 ```bash
 terraform destroy -auto-approve
@@ -262,48 +282,31 @@ terraform destroy -auto-approve
 
 ## Security note
 
-This project opens SSH, HTTP, and HTTPS ports publicly. That is useful for learning and testing, but in a real production system you should:
+This project opens common public ports for learning and testing. In production, you should:
 
-- Restrict SSH access to a trusted IP range
-- Only expose necessary ports
-- Use least-privilege IAM permissions
-- Put resources in a proper VPC design
-- Use private subnets for non-public services
+- restrict SSH access to trusted IP ranges
+- avoid exposing unnecessary ports
+- use least-privilege IAM permissions
+- keep private services in private networks when possible
 
 ## Why this project is useful
 
-This repo is useful because it shows a complete beginner-friendly Terraform flow:
+This repository is useful for:
 
-- Terraform code defines infrastructure
-- Variables make it configurable
-- Modules help organize code
-- Outputs expose important runtime values
-- Remote state is managed in S3
-- AWS resources are created automatically from code
-
-This is the exact practical workflow used in real DevOps environments.
-
-## Best use case
-
-This project is best used for:
-
-- Learning Terraform from scratch
-- Practising AWS resource provisioning
-- Building a demo environment for web servers
-- Testing Terraform module patterns
-- Understanding remote state and basic IaC workflows
+- learning Terraform basics
+- practicing AWS resource creation
+- understanding modules and variables
+- seeing how EC2 infrastructure is automated with code
+- understanding S3 remote state usage
 
 ## Final summary
 
-This repository is a small but complete Terraform project that demonstrates how to create a simple AWS web server environment. It uses a reusable module and shows the core concepts of Terraform in one place.
+This project is a simple AWS Terraform EC2 practice setup that shows how to create infrastructure using code. It is ideal for beginners who want to understand how Terraform manages cloud resources and how modules help organize configuration.
 
-If you read and use this file as a guide, you should be able to:
+With this repository, you can:
 
-- understand the goal of the project
-- know which resources are created
-- configure the required AWS and Terraform setup
-- deploy the environment
-- connect to the EC2 instance
-- destroy the infrastructure when done
-
-This project is a practical hands-on example for learning Terraform and AWS automation.
+- understand the project structure
+- provision an EC2 instance with Terraform
+- configure SSH access
+- view the instance connection details from outputs
+- destroy the environment cleanly when finished
