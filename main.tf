@@ -1,4 +1,5 @@
 terraform {
+  required_version = ">= 1.10.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -27,5 +28,5 @@ module "dev-infra" {
   env           = "dev"
   instance_name = "web-server"
   instance_type = "t2.micro"
-  public_key    = file("./terra-key")
+  public_key    = file("terra-key")
 }
